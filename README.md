@@ -87,19 +87,24 @@ site gets a separate stream through the table for nothing. The one-time cost
 is about 27,000 cycles at boot; the per-frame cost is slightly *lower* than
 the SID read was, because the table is pre-folded into glyph range.
 
-That hands voice 3 to the music, and the arrangement uses it:
+That hands voice 3 to the music. The tune is 16 bars in D minor at 94 BPM,
+looping every 41 seconds, and it leans cinematic rather than chiptune — which
+comes down to a slow tempo, a descending lament bass (D–C–B♭–A, the A taken as
+a major dominant for the bite of the C♯), sustained slow-attack timbres
+instead of plucky ones, and a half-time kick and snare instead of a busy kit.
 
-| voice | bars 1–8 | bars 9–16 |
-|-------|----------|-----------|
-| 1 | triangle bass | triangle bass, with an octave lift |
-| 2 | close pulse arpeggio, pulse width sweeping | the same arpeggio opened out over two octaves |
-| 3 | the drum kit | a lead melody with 6 Hz vibrato, kick and snare punching through between phrases |
+Three voices carry five parts:
 
-The kick is a real drum now rather than a burst of noise: a triangle wave
-swept from 481 Hz down to 60 Hz over six frames. The tune is 16 bars in D
-natural minor at 125 BPM, looping every 30.7 seconds, ticked once per frame
-off the same raster sync as the rain. The sequence is exactly 256 steps, so
-the position counter wraps on its own and the loop needs no compare.
+| voice | part | and also |
+|-------|------|----------|
+| 1 | sustained bass, the floor of the piece | never interrupted |
+| 2 | the off-beat ostinato | the kick, which takes the two steps a bar where the ostinato rests anyway |
+| 3 | the upper line, slow attack with vibrato | the snare on the backbeat |
+
+The upper line re-swells after every snare, and that pulsing-strings effect is
+the point rather than a compromise. The kick is a real drum — a triangle wave
+swept from 481 Hz down to 60 Hz over six frames — which is only possible
+because the voice is free to change pitch again.
 
 ## Building
 
@@ -142,10 +147,13 @@ contains after a few hundred frames:
 - no character code outside the three dither blocks
 - the per-frame cycle budget, so a build can never miss a frame
 
-The tune is checked the same way: `tools/sidtrace.py` runs the player in the
-simulator and reads back every note it writes to the SID, which is a far more
-reliable check than analysing the rendered audio — the arpeggio's harmonics
-sit in the same band as the lead and will happily fool a spectrum peak.
+The tune is checked the same way. `make checktune` runs the player in the
+simulator, reads back every frequency it writes to the SID, and compares it
+against what `tools/music.py` composed — so the generator, the assembled data
+and the player are checked against each other end to end. That is far more
+reliable than analysing the rendered audio: the ostinato's harmonics sit in
+the same band as the upper line and will happily fool a spectrum peak into
+reporting the wrong note.
 
 `tools/measure.py` counts how many rows the rain actually advances per frame,
 which is how the speed was tuned.

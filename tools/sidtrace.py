@@ -7,13 +7,18 @@ frequencies the player actually writes to the SID is ground truth.
     python3 tools/sidtrace.py build/tune.bin [steps]
 """
 import math
+import os
+import re
 import sys
 
 from py65.devices.mpu6502 import MPU
 from py65.memory import ObservableMemory
 
 PAL = 985248.4
-STEP_FRAMES = 6
+# read the tempo out of the player rather than assuming it
+STEP_FRAMES = int(re.search(r"^MTEMPO\s*=\s*(\d+)", open(
+    os.path.join(os.path.dirname(os.path.abspath(__file__)),
+                 "..", "src", "music.inc")).read(), re.M).group(1))
 NAMES = ["C", "C#", "D", "D#", "E", "F", "F#", "G", "G#", "A", "A#", "B"]
 WAVE = {0x10: "tri", 0x20: "saw", 0x40: "pulse", 0x80: "noise"}
 
@@ -76,13 +81,44 @@ if __name__ == "__main__":
     path = sys.argv[1] if len(sys.argv) > 1 else "build/tune.bin"
     steps = int(sys.argv[2]) if len(sys.argv) > 2 else 256
     ev = trace(path, steps)
+    print("tempo: %d frames per step" % STEP_FRAMES)
     for v in (1, 2, 3):
         rows = [e for e in ev if e[1] == v]
         kinds = {}
         for _, _, w, _ in rows:
             kinds[WAVE.get(w, hex(w))] = kinds.get(WAVE.get(w, hex(w)), 0) + 1
         print("voice %d: %3d events  %s" % (v, len(rows), kinds))
-    print("\nvoice 3, first 24 events (step / waveform / note):")
-    for step, v, w, fr in [e for e in ev if e[1] == 3][:24]:
-        print("  step %3d  bar %2d.%02d  %-5s %s"
-              % (step, step // 16 + 1, step % 16, WAVE.get(w, hex(w)), note(fr)))
+
+    # --- compare what the chip was told against what was composed ---------
+    sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+    import music
+    seqs = music.sequences()
+    played = {}
+    for step, v, w, fr in ev:
+        played.setdefault((step, v), (w, fr))
+    checked = wrong = missing = 0
+    for v, seq in enumerate(seqs, start=1):
+        for step, code in enumerate(seq):
+            if code < 8:
+                continue
+            checked += 1
+            got = played.get((step, v))
+            if got is None:
+                missing += 1
+                print("  MISSING  step %3d voice %d, expected %s"
+                      % (step, v, note(music.sidfreq(code))))
+            elif got[1] != music.sidfreq(code):
+                wrong += 1
+                print("  WRONG    step %3d voice %d: chip got %s, composed %s"
+                      % (step, v, note(got[1]), note(music.sidfreq(code))))
+    print("\npitched notes: %d composed, %d wrong, %d missing -> %s"
+          % (checked, wrong, missing,
+             "every note matches" if wrong == missing == 0 else "MISMATCH"))
+    for name, code in (("kick", music.KICK), ("snare", music.SNARE)):
+        for v, seq in enumerate(seqs, start=1):
+            n = seq.count(code)
+            if n:
+                hit = sum(1 for step, c in enumerate(seq)
+                          if c == code and (step, v) in played)
+                print("%-6s on voice %d: %d composed, %d reached the chip"
+                      % (name, v, n, hit))
