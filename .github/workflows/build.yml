@@ -1,0 +1,39 @@
+name: build
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install the assembler
+        run: sudo apt-get update && sudo apt-get install -y acme
+
+      - name: Install the verification tools
+        run: pip install py65 pillow numpy
+
+      - name: Build every variant and the disk image
+        run: make
+
+      - name: Run the 6502 simulator checks
+        run: make verify
+
+      - name: Fail if any invariant was violated
+        run: |
+          make verify | tee /tmp/verify.log
+          if grep -qv 'invariant violations: none' /tmp/verify.log; then
+            grep -v 'invariant violations: none' /tmp/verify.log && exit 1
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: matrix-rain
+          path: |
+            dist/matrix.d64
+            build/*.prg
