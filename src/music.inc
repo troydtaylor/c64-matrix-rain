@@ -16,8 +16,8 @@
 ;              the backbeat.  The line re-swells after every snare, and that
 ;              pulsing-strings effect is the point, not a compromise.
 ;
-;  The kick is a real drum: a triangle wave swept from 481 Hz down to 60 Hz
-;  over six frames.  It can be, because the rain no longer needs a SID voice
+;  The kick is a real drum: a triangle wave swept from 300 Hz down to 45 Hz
+;  over eight frames, with a long decay so the low end of it booms.  It can be, because the rain no longer needs a SID voice
 ;  for its random numbers - see mkrnd in matrix.asm.
 ;
 ;  The sequence is exactly 256 steps, so the position counter wraps on its
@@ -32,6 +32,7 @@ W_OST   = $40                   ; pulse
 W_UPPER = $20                   ; sawtooth
 W_NOISE = $80                   ; noise, for the snare
 W_KICK  = $10                   ; triangle, swept down in pitch
+W_SUB   = $10                   ; triangle, the sub layer
 
 ; ---------------------------------------------------------------------------
 musinit:
@@ -112,9 +113,9 @@ mstep:
 
 .v2kick lda #$00                ; triangle, swept down by dtick each frame
         sta $d407
-        lda kickf+5
+        lda kickf+7
         sta $d408
-        lda #$08                ; 300 ms decay
+        lda #$09                ; 750 ms decay - it booms rather than taps
         sta $d40c
         lda #$00
         sta $d40d
@@ -122,24 +123,36 @@ mstep:
         sta $d40b
         lda #W_KICK|$01
         sta $d40b
-        lda #$06
-        sta dcnt                ; six frames of pitch sweep
+        lda #$08
+        sta dcnt                ; eight frames of pitch sweep
         jmp .s2
 
-.v2note tax                     ; an ostinato note: pulse, short, with a
-        lda #$00                ; little sustain so it drives rather than
-        sta dcnt                ; ticks.  Also cancels any kick sweep.
+.v2note and #$7f                ; bit 7 is a waveform flag, not pitch
+        tax
+        lda #$00
+        sta dcnt                ; cancel any kick sweep
         lda freqlo,x
         sta $d407
         lda freqhi,x
         sta $d408
-        lda #$07
-        sta $d40c
-        lda #$40
+        lda seq2,y
+        bmi .v2sub
+        lda #$07                ; ostinato: pulse, short, a little sustain
+        sta $d40c               ; so it drives rather than ticks
+        lda #$30
         sta $d40d
         lda #W_OST
         sta $d40b
         lda #W_OST|$01
+        sta $d40b
+        jmp .s2
+.v2sub  lda #$00                ; sub: triangle, instant attack, held at
+        sta $d40c               ; full level - a near-pure fundamental
+        lda #$f9                ; under the sawtooth riff
+        sta $d40d
+        lda #W_SUB
+        sta $d40b
+        lda #W_SUB|$01
         sta $d40b
 .s2
 
@@ -187,8 +200,8 @@ mstep:
         sta leadhi
         lda #$89                ; 100 ms attack - it swells in
         sta $d413
-        lda #$ca                ; sustain 12, 1.5 s release
-        sta $d414
+        lda #$9a                ; sustain 9, 1.5 s release - it sits behind
+        sta $d414               ; the bass rather than on top of it
         lda #W_UPPER
         sta $d412
         lda #W_UPPER|$01
@@ -275,8 +288,8 @@ musoff:
         rts
 
 ; ---- data -----------------------------------------------------------------
-; kick sweep, read backwards: $20xx first (481 Hz), $04xx last (60 Hz)
-kickf:  !byte $04,$06,$09,$0d,$13,$20
+; kick sweep, read backwards: $14xx first (300 Hz), $03xx last (45 Hz)
+kickf:  !byte $03,$03,$04,$05,$07,$09,$0c,$14
 ; vibrato, a triangle centred on 40
 vibtab: !byte 40,60,80,60,40,20,0,20
 

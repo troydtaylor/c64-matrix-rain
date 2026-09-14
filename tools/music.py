@@ -13,8 +13,11 @@ than "chiptune", so it leans on the things that actually carry that feel:
 Voice budget, and why the parts sit where they do:
 
     voice 1   the bass riff - sawtooth, six notes a bar, the driving part
-    voice 2   the ostinato, plus the kick, which takes the two steps where
-              the ostinato rests anyway
+    voice 2   section A: a triangle SUB layer playing the same riff under
+              the sawtooth - a near-pure fundamental, the way a sine is
+              layered under a synth bass in a studio.  Section B: the
+              ostinato.  Both sections: the kick, on the two steps where
+              the riff and ostinato both rest.
     voice 3   the upper line, slow attack with vibrato, plus the snare on the
               backbeat; the line re-swells after every snare, which is the
               pulsing-strings effect and is deliberate
@@ -64,6 +67,9 @@ FIFTH = {'Dm': 'A2', 'C': 'G2', 'Bb': 'F2', 'A': 'E2', 'Gm': 'D2'}
 BASS_STEPS = (0, 3, 6, 8, 11, 14)
 BASS_OFFSET = (0, 0, -5, 0, -2, -5)     # semitones from the root
 
+# voice 2 note codes carry bit 7 as a waveform flag: set = triangle sub
+SUB = 0x80
+
 # six off-beat notes a bar, outlining the chord
 OSTINATO = {
     'Dm': ['A3', 'D4', 'F4', 'D4', 'A3', 'D4'],
@@ -94,18 +100,29 @@ def sequences():
             else:
                 s1.append(HOLD)
 
-            # --- voice 2: kick on the beat, ostinato off it ---
+            # --- voice 2: kick on the beat; under it, the sub in A and the
+            #     ostinato in B ---
             if st in (0, 8):
                 s2.append(KICK)
+            elif bar < 8:
+                # the sub doubles the riff, held at full level, so the
+                # fundamental is continuous under the sawtooth
+                if st in BASS_STEPS:
+                    s2.append(SUB | (idx(ROOT[ch])
+                                     + BASS_OFFSET[BASS_STEPS.index(st)]))
+                else:
+                    s2.append(HOLD)
             elif st in OSTINATO_STEPS:
-                n = idx(OSTINATO[ch][OSTINATO_STEPS.index(st)])
-                s2.append(n - 12 if bar < 8 else n)   # heavier first half
+                s2.append(idx(OSTINATO[ch][OSTINATO_STEPS.index(st)]))
             else:
                 s2.append(HOLD)
 
-            # --- voice 3: upper line, snare on the backbeat ---
+            # --- voice 3: upper line, snare on the backbeat.  The line
+            #     sits out the first four bars: bass and drums alone ---
             if st in (4, 12):
                 s3.append(SNARE)
+            elif bar < 4:
+                s3.append(HOLD)
             elif st == 0:
                 s3.append(idx(UPPER[bar][0]))
             elif st == 8:
@@ -147,6 +164,7 @@ if __name__ == "__main__":
     print("%d steps at %d frames = %.1f s per loop, %.0f BPM"
           % (SEQLEN, STEP_FRAMES, SEQLEN * STEP_FRAMES / 50.0,
              60.0 / (STEP_FRAMES / 50.0 * 4)))
-    print("bass riff %d   ostinato %d   kicks %d   upper line %d   snares %d"
-          % (sum(1 for n in s1 if n >= 8), sum(1 for n in s2 if n >= 8),
-             s2.count(KICK), sum(1 for n in s3 if n >= 8), s3.count(SNARE)))
+    print("bass riff %d   sub %d   ostinato %d   kicks %d   upper line %d   snares %d"
+          % (sum(1 for n in s1 if n >= 8), sum(1 for n in s2 if n & SUB),
+             sum(1 for n in s2 if 8 <= n < SUB), s2.count(KICK),
+             sum(1 for n in s3 if n >= 8), s3.count(SNARE)))

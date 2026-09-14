@@ -101,6 +101,7 @@ if __name__ == "__main__":
         for step, code in enumerate(seq):
             if code < 8:
                 continue
+            code &= 0x7f                     # bit 7 is a waveform flag
             checked += 1
             got = played.get((step, v))
             if got is None:

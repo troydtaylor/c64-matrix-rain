@@ -105,13 +105,14 @@ Three voices carry five parts:
 | voice | part | and also |
 |-------|------|----------|
 | 1 | the bass riff — sawtooth, six notes a bar, 3+3+2 across it | never interrupted |
-| 2 | the off-beat ostinato | the kick, which takes the two steps a bar where the ostinato rests anyway |
-| 3 | the upper line, slow attack with vibrato | the snare on the backbeat |
+| 2 | bars 1–8: a triangle **sub layer** doubling the riff at full sustain — a near-pure fundamental under the sawtooth, the way a sine is layered under a synth bass. Bars 9–16: the off-beat ostinato | the kick, on the two steps a bar where both rest anyway |
+| 3 | the upper line, slow attack with vibrato — it sits out the first four bars, so the piece opens on bass and drums alone | the snare on the backbeat |
 
 The upper line re-swells after every snare, and that pulsing-strings effect is
 the point rather than a compromise. The kick is a real drum — a triangle wave
-swept from 481 Hz down to 60 Hz over six frames — which is only possible
-because the voice is free to change pitch again.
+swept from 300 Hz down to 45 Hz over eight frames with a long decay, so the
+bottom of it booms — which is only possible because the voice is free to
+change pitch again.
 
 ## Building
 
