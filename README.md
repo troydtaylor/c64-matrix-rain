@@ -71,22 +71,35 @@ colour RAM is the same pointer with `$D4` added to the high byte, since
 The whole update runs in the lower border at raster line 250, so the picture
 is never half-drawn.
 
-### The drums share the random number generator
+### Randomness in software, so the third voice can sing
 
 ![The glyph set](docs/fontsheet.png)
 
-The rain picks its glyphs by reading `$D41B` — the SID voice 3 oscillator,
-running noise at frequency `$FFFF`. That is four cycles for a random byte and
-no state to keep. It also means voice 3 can never change pitch, or the glyphs
-start repeating.
+The rain used to pick its glyphs by reading `$D41B`, the SID voice 3
+oscillator, running noise at full frequency. Four cycles for a random byte and
+no state to keep — but it pinned that voice to the noise waveform for ever,
+which left the music with two and a half voices.
 
-So the percussion is played entirely with the envelope: gate on, gate off, and
-a different decay rate for the hat (72 ms) and the snare (204 ms). The
-oscillator keeps running untouched, and the random numbers are exactly as good
-as they were before there was any music. Voice 1 is a triangle bass, voice 2 a
-pulse arpeggio in straight 16ths with a sweeping pulse width. The tune is
-eight bars in D natural minor at 125 BPM, looping every 15.4 seconds, ticked
-once per frame off the same raster sync as the rain.
+It now builds a 256-entry table of glyph numbers at boot with a 16-bit LFSR,
+stepped eight times per entry so neighbours are independent. Reading it costs
+ten cycles: the operand of the `LDA` is its own walking pointer, so every call
+site gets a separate stream through the table for nothing. The one-time cost
+is about 27,000 cycles at boot; the per-frame cost is slightly *lower* than
+the SID read was, because the table is pre-folded into glyph range.
+
+That hands voice 3 to the music, and the arrangement uses it:
+
+| voice | bars 1–8 | bars 9–16 |
+|-------|----------|-----------|
+| 1 | triangle bass | triangle bass, with an octave lift |
+| 2 | close pulse arpeggio, pulse width sweeping | the same arpeggio opened out over two octaves |
+| 3 | the drum kit | a lead melody with 6 Hz vibrato, kick and snare punching through between phrases |
+
+The kick is a real drum now rather than a burst of noise: a triangle wave
+swept from 481 Hz down to 60 Hz over six frames. The tune is 16 bars in D
+natural minor at 125 BPM, looping every 30.7 seconds, ticked once per frame
+off the same raster sync as the rain. The sequence is exactly 256 steps, so
+the position counter wraps on its own and the loop needs no compare.
 
 ## Building
 
@@ -95,6 +108,7 @@ Needs [ACME](https://sourceforge.net/projects/acme-crossass/) and Python 3.
 ```sh
 make            # every variant plus dist/matrix.d64
 make verify     # run each build through a 6502 simulator
+make checktune  # read back every note the player writes to the SID
 make sid        # the tune as a standalone .sid
 make audio      # render that to mp3 (needs sidplayfp and ffmpeg)
 ```
@@ -128,6 +142,11 @@ contains after a few hundred frames:
 - no character code outside the three dither blocks
 - the per-frame cycle budget, so a build can never miss a frame
 
+The tune is checked the same way: `tools/sidtrace.py` runs the player in the
+simulator and reads back every note it writes to the SID, which is a far more
+reliable check than analysing the rendered audio — the arpeggio's harmonics
+sit in the same band as the lead and will happily fool a spectrum peak.
+
 `tools/measure.py` counts how many rows the rain actually advances per frame,
 which is how the speed was tuned.
 
@@ -144,6 +163,7 @@ tools/music.py      composes the tune, emits musicdata.inc
 tools/mkd64.py      writes a .d64 by hand (BAM, directory, linked sectors)
 tools/sim.py        6502 simulator harness and the invariant checks
 tools/fakerom.py    stand-in character ROM for the simulator
+tools/sidtrace.py   reads back every note the player writes to the SID
 tools/measure.py    measures the actual fall speed
 ```
 

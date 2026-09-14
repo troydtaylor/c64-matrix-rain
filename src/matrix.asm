@@ -123,13 +123,13 @@ RASLINE = $fa                   ; raster 250 = lower border, PAL and NTSC
 }
 
 ; --- random glyph 0..GLYPHS-1 into A ---------------------------------------
+;     Ten cycles, and no SID.  rndtab is 256 pre-folded glyph numbers built at
+;     boot by an LFSR; the operand of the LDA is its own walking pointer, so
+;     every place this macro is used gets an independent stream through the
+;     table for free.  rndtab is page aligned, so the INC wraps in place.
 !macro rndglyph {
-        lda $d41b               ; SID voice 3 noise: a random byte for 4 cycles
-        and #$7f
-        cmp #GLYPHS
-        bcc .ok
-        sbc #GLYPHS             ; fold 85..127 back into range
-.ok
+.here   lda rndtab
+        inc .here+1
 }
 
 ; --- the head: fresh glyph, full brightness, head colour -------------------
@@ -287,14 +287,9 @@ start:
         lda #D018VAL
         sta $d018               ; switch the VIC to our character set
 
+        jsr mkrnd               ; fill the random table
 !if MUSIC = 1 {
-        jsr musinit             ; sets up all three voices, voice 3 included
-} else {
-        lda #$ff                ; SID voice 3 -> free random numbers
-        sta $d40e
-        sta $d40f
-        lda #$80
-        sta $d412               ; noise waveform
+        jsr musinit             ; all three voices are free for music now
 }
 
         jsr initcols
@@ -318,10 +313,7 @@ mainloop:
 ; --- put everything back the way BASIC likes it ----------------------------
 exit:
 !if MUSIC = 1 {
-        jsr musoff
-} else {
-        lda #$00
-        sta $d412               ; SID quiet
+        jsr musoff              ; with MUSIC = 0 the SID is never touched
 }
         lda #$ff
         sta $dc00
@@ -338,20 +330,55 @@ exit:
         rts
 
 ; ===========================================================================
+;  Fill rndtab with 256 glyph numbers, 0..GLYPHS-1
+; ---------------------------------------------------------------------------
+;  A 16 bit Galois LFSR, stepped eight times per byte so consecutive entries
+;  are independent.  This used to be a read of $D41B, the SID voice 3
+;  oscillator, which was free but pinned that voice to the noise waveform for
+;  ever.  Doing it in software costs about 27000 cycles once, at boot, and
+;  hands the third voice to the music.
+; ===========================================================================
+mkrnd:
+        lda $d012               ; seed from the raster, never zero
+        ora #$01
+        sta seed
+        lda #$c3
+        sta seed+1
+        ldx #$00
+.byte   ldy #$08
+.bit    lsr seed+1
+        ror seed
+        bcc .nofb
+        lda seed+1
+        eor #$b4                ; taps
+        sta seed+1
+.nofb   dey
+        bne .bit
+        lda seed
+        and #$7f
+        cmp #GLYPHS
+        bcc .ok
+        sbc #GLYPHS             ; fold 85..127 into range
+.ok     sta rndtab,x
+        inx
+        bne .byte
+        rts
+
+; ===========================================================================
 ;  Give every column a random start row, speed and trail length
 ; ===========================================================================
 initcols:
         ldx #COLS-1
-.il     lda $d41b
+.il     +rndglyph
         and #$1f
         sta row,x               ; stagger the columns
-        lda $d41b
+        +rndglyph
         and #$03
         tay
         lda spdtab,y            ; frames per row, from the speed table
         sta speed,x
         sta delay,x
-        lda $d41b
+        +rndglyph
         and #$0f
         clc
         adc #$06                ; trail 6..21 rows
@@ -385,13 +412,13 @@ uwork:
 
         lda #$00                ; respawn with new random parameters
         sta row,x
-        lda $d41b
+        +rndglyph
         and #$03
         tay
         lda spdtab,y
         sta speed,x
         sta delay,x
-        lda $d41b
+        +rndglyph
         and #$0f
         clc
         adc #$06
@@ -590,6 +617,11 @@ rowhi:
         !byte >(SCREEN+24*40)
 
 ; --- per-column state ------------------------------------------------------
+seed:   !byte 0,0               ; LFSR state, used only at boot
+
+        !align 255,0            ; rndtab must start on a page boundary
+rndtab: !fill 256,0
+
 row:    !fill COLS,0            ; head row, 0..24+len
 delay:  !fill COLS,1            ; frames until the next step
 speed:  !fill COLS,1            ; frames per row

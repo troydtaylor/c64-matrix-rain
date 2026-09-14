@@ -15,7 +15,7 @@ FLAGS_matrix-amber  := -DPALETTE=1
 FLAGS_matrix-ice    := -DPALETTE=2
 FLAGS_matrix-rom    := -DFONT=0
 
-.PHONY: all disk verify font music sid audio clean
+.PHONY: all disk verify checktune font music sid audio clean
 all: disk
 disk: $(DIST)/matrix.d64
 
@@ -44,6 +44,14 @@ verify: $(PRGS) $(BUILD)/kstub.bin
 	        | grep -E 'invariant|CPU load' | tr '\n' ' '; echo; \
 	done
 
+# Read back every note the player writes to the SID, which is ground truth
+# for the arrangement in a way that analysing the rendered audio is not.
+checktune: $(BUILD)/tune.bin
+	$(PYTHON) tools/sidtrace.py $(BUILD)/tune.bin
+
+$(BUILD)/tune.bin: src/psid.asm src/music.inc src/musicdata.inc | $(BUILD)
+	$(ACME) -I src -f cbm -o $@ src/psid.asm
+
 # Regenerate the glyph set and the tune from their generators.
 font:
 	cd src && $(PYTHON) ../tools/mkfont.py
@@ -54,14 +62,13 @@ music:
 
 # The tune on its own, as a .sid, plus an mp3 rendered from it.
 sid: $(DIST)/tune.sid
-$(DIST)/tune.sid: src/psid.asm src/music.inc src/musicdata.inc | $(DIST)
-	$(ACME) -I src -o $(BUILD)/tune.bin src/psid.asm
+$(DIST)/tune.sid: $(BUILD)/tune.bin tools/mksid.py | $(DIST)
 	$(PYTHON) tools/mksid.py $(BUILD)/tune.bin $@
 
 audio: $(DIST)/tune.sid
-	sidplayfp -w$(BUILD)/tune.wav -t35 $(DIST)/tune.sid
-	ffmpeg -y -loglevel error -i $(BUILD)/tune.wav -ss 1.99 -t 31 \
-	    -af "afade=t=out:st=29:d=2" -codec:a libmp3lame -b:a 160k \
+	sidplayfp -w$(BUILD)/tune.wav -t68 $(DIST)/tune.sid
+	ffmpeg -y -loglevel error -i $(BUILD)/tune.wav -ss 2.0 -t 62 \
+	    -af "afade=t=out:st=60:d=2" -codec:a libmp3lame -b:a 160k \
 	    $(DIST)/matrix-tune.mp3
 
 clean:

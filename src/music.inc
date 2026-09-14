@@ -1,29 +1,36 @@
 ; ===========================================================================
 ;  T H E   T U N E
 ; ---------------------------------------------------------------------------
-;  An original piece: D natural minor, 8 bars, 125 BPM, looping every 15.4s.
+;  An original piece: D natural minor, 125 BPM, 16 bars in two sections,
+;  looping every 30.7 seconds.
 ;
-;    voice 1   triangle bass, root-root-fifth under each chord
-;    voice 2   pulse arpeggio in straight 16ths, pulse width sweeping
-;    voice 3   noise percussion - AND the rain's random number generator
+;    voice 1   triangle bass
+;    voice 2   pulse arpeggio, pulse width sweeping
+;    voice 3   bars 1-8   the drum kit
+;              bars 9-16  a lead melody with vibrato, with the kick and the
+;                         snare still punching through it between phrases
 ;
-;  That last one is the interesting constraint.  The rain reads $D41B, the
-;  voice 3 oscillator, to pick its glyphs, so voice 3 must stay on the noise
-;  waveform at frequency $FFFF for ever.  The drums are therefore played
-;  entirely with the envelope: gate on, gate off, and a different decay rate
-;  for the hat and the snare.  The oscillator never stops running, so the
-;  random numbers are exactly as good as they were before the music existed.
+;  Voice 3 was previously stuck on the noise waveform for ever, because the
+;  rain read its oscillator at $D41B to choose glyphs.  The rain now builds
+;  its own table of random numbers at boot, so this voice is free: it can
+;  play pitched notes, which is what the whole B section is made of, and the
+;  kick can be a real drum - a triangle wave swept from 481 Hz down to 60 Hz
+;  over six frames - instead of a burst of noise.
+;
+;  The sequence is exactly 256 steps, so the position counter wraps on its
+;  own and the loop needs no compare.
 ;
 ;  One step every 6 frames, driven from the same raster sync as the rain, so
-;  the timing is locked to the display and cannot drift.
+;  the music cannot drift against the display.
 ; ===========================================================================
 
 MTEMPO  = 6                     ; frames per step (6 = 125 BPM in 16ths)
-SEQLEN  = 128                   ; steps in the loop
 
 W_BASS  = $10                   ; triangle
 W_ARP   = $40                   ; pulse
-W_PERC  = $80                   ; noise
+W_LEAD  = $20                   ; sawtooth
+W_NOISE = $80                   ; noise, for the hat and the snare
+W_KICK  = $10                   ; triangle, swept down in pitch
 
 ; ---------------------------------------------------------------------------
 musinit:
@@ -32,14 +39,6 @@ musinit:
 .wipe   sta $d400,x
         dex
         bpl .wipe
-
-        lda #$ff                ; voice 3: noise, highest frequency, for ever
-        sta $d40e
-        sta $d40f
-        lda #W_PERC
-        sta $d412
-        lda #$03                ; hat envelope to start with
-        sta $d413
 
         lda #$18                ; voice 1 bass: 8ms attack, 300ms decay,
         sta $d405               ; sustain 10, 300ms release
@@ -51,17 +50,19 @@ musinit:
         lda #$00
         sta $d40d
 
-        lda #$00                ; pulse width starts at 25% and sweeps
+        lda #$00                ; arp pulse width starts narrow and sweeps
         sta pwlo
         lda #$06
         sta pwhi
         lda #$00
-        sta pwdir               ; 0 = widening
+        sta pwdir
 
-        lda #$00
-        sta mpos
+        sta mpos                ; A still zero
+        sta dcnt
+        sta leadon
+        sta vibph
         lda #$01
-        sta mtick               ; first step happens on the first frame
+        sta mtick               ; first step lands on the first frame
 
         lda #$0f
         sta $d418               ; volume
@@ -71,9 +72,11 @@ musinit:
 ;  Called once per frame, straight after the rain update.
 ; ---------------------------------------------------------------------------
 mplay:
+        jsr dtick               ; kick drum pitch sweep
+        jsr vibrato             ; lead wobble
         dec mtick
         beq mstep
-        jmp mpw                 ; between steps: only the pulse width moves
+        jmp mpw                 ; between steps only the sweeps move
 
 mstep:
         lda #MTEMPO
@@ -93,7 +96,7 @@ mstep:
         sta $d400
         lda freqhi,x
         sta $d401
-        lda #W_BASS             ; gate low, then high, to retrigger
+        lda #W_BASS             ; gate low then high, to retrigger
         sta $d404
         lda #W_BASS|$01
         sta $d404
@@ -118,32 +121,97 @@ mstep:
         sta $d40b
 .s2
 
-        ; ---- voice 3: percussion, envelope only ---------------------------
+        ; ---- voice 3: drums in section A, lead in section B ---------------
         lda seq3,y
-        beq .s3
+        bne .v3
+        jmp .s3                 ; hold
+.v3     cmp #$08
+        bcc .notlead            ; $08 and up is a note; the voice 3 block is
+        jmp .lead               ; too long for a short branch to reach it
+.notlead
         cmp #$01
-        bne .n3
-        lda #W_PERC
+        bne .drum
+        lda #$00                ; silence the voice
         sta $d412
-        bne .s3
-.n3     cmp #$02
-        bne .snare
-        lda #$03                ; hat:   72 ms decay
-        bne .hit
-.snare  lda #$06                ; snare: 204 ms decay
-.hit    sta $d413
-        lda #W_PERC             ; note the frequency is never touched
+        sta leadon
+        sta dcnt
+        jmp .s3
+
+.drum   sta dtmp                ; 2 = hat, 3 = snare, 4 = kick
+        lda #$00
+        sta leadon
+        sta dcnt
+        lda dtmp
+        cmp #$04
+        beq .kick
+
+        cmp #$02                ; hat and snare are both noise, and differ
+        bne .snare              ; only in pitch and decay
+        lda #$ff
+        sta $d40e
+        sta $d40f               ; top of the range: a short bright tick
+        lda #$02                ; 48 ms decay
+        bne .noisehit
+.snare  lda #$00
+        sta $d40e
+        lda #$40
+        sta $d40f               ; lower and grainier
+        lda #$06                ; 204 ms decay
+.noisehit
+        sta $d413
+        lda #$00
+        sta $d414
+        lda #W_NOISE
         sta $d412
-        lda #W_PERC|$01
+        lda #W_NOISE|$01
         sta $d412
+        jmp .s3
+
+.kick   lda #$00                ; triangle, swept down by dtick each frame
+        sta $d40e
+        lda kickf+5
+        sta $d40f
+        lda #$07                ; 240 ms decay
+        sta $d413
+        lda #$00
+        sta $d414
+        lda #W_KICK
+        sta $d412
+        lda #W_KICK|$01
+        sta $d412
+        lda #$06
+        sta dcnt                ; six frames of pitch sweep
+        jmp .s3
+
+.lead   tax                     ; a lead note: sawtooth, with vibrato
+        lda #$00
+        sta dcnt                ; cancel any kick sweep
+        lda freqlo,x
+        sta $d40e
+        sta leadlo
+        lda freqhi,x
+        sta $d40f
+        sta leadhi
+        lda leadlo              ; park the vibrato centre 40 below the note,
+        sec                     ; so the wobble is symmetrical about it
+        sbc #40
+        sta leadlo
+        lda leadhi
+        sbc #$00
+        sta leadhi
+        lda #$16                ; 8ms attack, 204ms decay, sustain 12
+        sta $d413
+        lda #$c6                ; 204 ms release
+        sta $d414
+        lda #W_LEAD
+        sta $d412
+        lda #W_LEAD|$01
+        sta $d412
+        lda #$01
+        sta leadon
 .s3
 
-        inc mpos
-        lda mpos
-        cmp #SEQLEN
-        bne mpw
-        lda #$00
-        sta mpos
+        inc mpos                ; 256 steps, so this wraps by itself
 
 ; ---- pulse width sweep on the arpeggio ------------------------------------
 mpw:
@@ -179,13 +247,52 @@ mpw:
         rts
 
 ; ---------------------------------------------------------------------------
+;  Kick drum: walk the frequency down one step per frame.
+; ---------------------------------------------------------------------------
+dtick:
+        lda dcnt
+        beq .nokick
+        dec dcnt
+        ldx dcnt
+        lda #$00
+        sta $d40e
+        lda kickf,x
+        sta $d40f
+.nokick rts
+
+; ---------------------------------------------------------------------------
+;  Lead vibrato: one cycle every eight frames, about 6 Hz.
+; ---------------------------------------------------------------------------
+vibrato:
+        lda leadon
+        beq .novib
+        inc vibph
+        lda vibph
+        and #$07
+        tax
+        lda leadlo
+        clc
+        adc vibtab,x
+        sta $d40e
+        lda leadhi
+        adc #$00
+        sta $d40f
+.novib  rts
+
+; ---------------------------------------------------------------------------
 musoff:
         lda #$00
         sta $d418               ; volume off
-        sta $d404               ; all gates released
+        sta $d404               ; every gate released
         sta $d40b
         sta $d412
         rts
+
+; ---- data -----------------------------------------------------------------
+; kick sweep, read backwards: $20xx first (481 Hz), $04xx last (60 Hz)
+kickf:  !byte $04,$06,$09,$0d,$13,$20
+; vibrato, a triangle centred on 40
+vibtab: !byte 40,60,80,60,40,20,0,20
 
 ; ---- state ----------------------------------------------------------------
 mpos:   !byte 0
@@ -193,5 +300,11 @@ mtick:  !byte 1
 pwlo:   !byte 0
 pwhi:   !byte 6
 pwdir:  !byte 0
+dcnt:   !byte 0                 ; frames left in the kick sweep
+dtmp:   !byte 0
+leadon: !byte 0
+leadlo: !byte 0
+leadhi: !byte 0
+vibph:  !byte 0
 
 !source "musicdata.inc"
