@@ -88,16 +88,23 @@ is about 27,000 cycles at boot; the per-frame cost is slightly *lower* than
 the SID read was, because the table is pre-folded into glyph range.
 
 That hands voice 3 to the music. The tune is 16 bars in D minor at 94 BPM,
-looping every 41 seconds, and it leans cinematic rather than chiptune — which
-comes down to a slow tempo, a descending lament bass (D–C–B♭–A, the A taken as
-a major dominant for the bite of the C♯), sustained slow-attack timbres
-instead of plucky ones, and a half-time kick and snare instead of a busy kit.
+looping every 41 seconds. It leans cinematic rather than chiptune — a slow
+tempo, a descending lament bass (D–C–B♭–A, the A taken as a major dominant for
+the bite of the C♯), a half-time kick and snare instead of a busy kit, and a
+sawtooth bass riff carrying the whole thing.
+
+Every note of that riff sits at or below the root — root, fifth below, flat
+seventh below — so it never climbs out of the bass register, and it sustains
+at full level between hits rather than decaying, which keeps the low end
+continuous while still being an articulated line rather than a drone. Note
+indices are based so that index 8 is C1: the bottom octave is usable and no
+pitched note can collide with a drum code.
 
 Three voices carry five parts:
 
 | voice | part | and also |
 |-------|------|----------|
-| 1 | sustained bass, the floor of the piece | never interrupted |
+| 1 | the bass riff — sawtooth, six notes a bar, 3+3+2 across it | never interrupted |
 | 2 | the off-beat ostinato | the kick, which takes the two steps a bar where the ostinato rests anyway |
 | 3 | the upper line, slow attack with vibrato | the snare on the backbeat |
 

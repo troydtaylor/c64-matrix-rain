@@ -9,7 +9,7 @@
 ;
 ;  Three voices carry five parts:
 ;
-;    voice 1   bass, sustained, never interrupted - the floor of the piece
+;    voice 1   the bass riff, sawtooth, six notes a bar, 3+3+2 across it
 ;    voice 2   the off-beat ostinato, plus the kick, which takes the two
 ;              steps of each bar where the ostinato rests anyway
 ;    voice 3   the upper line, slow attack with vibrato, plus the snare on
@@ -27,7 +27,7 @@
 
 MTEMPO  = 8                     ; frames per step (8 = 94 BPM in 16ths)
 
-W_BASS  = $10                   ; triangle
+W_BASS  = $20                   ; sawtooth - fat, and it cuts
 W_OST   = $40                   ; pulse
 W_UPPER = $20                   ; sawtooth
 W_NOISE = $80                   ; noise, for the snare
@@ -41,9 +41,9 @@ musinit:
         dex
         bpl .wipe
 
-        lda #$28                ; voice 1: 16ms attack, 300ms decay,
-        sta $d405               ; sustain 13, 750ms release - a low drone
-        lda #$d9
+        lda #$00                ; voice 1: instant attack, and sustain at full
+        sta $d405               ; level, so each riff note holds its weight
+        lda #$f9                ; right up to the next one.  750ms release.
         sta $d406
 
         lda #$00                ; the ostinato's pulse width sweeps

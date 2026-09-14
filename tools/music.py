@@ -6,13 +6,13 @@ than "chiptune", so it leans on the things that actually carry that feel:
   * a slow tempo - 94 BPM, one step every 8 frames
   * a descending lament bass, D - C - Bb - A, the oldest dramatic device
     there is, with the A taken as a major dominant for the bite of the C#
-  * sustained, slow-attack timbres instead of plucky ones
+  * a sawtooth bass riff carrying the piece, syncopated 3+3+2 across the bar
   * a half-time kick and snare rather than a busy kit
-  * a driving off-beat ostinato underneath a slow upper line
+  * an ostinato sitting low under a slow upper line
 
 Voice budget, and why the parts sit where they do:
 
-    voice 1   bass, sustained, never interrupted - the floor of the piece
+    voice 1   the bass riff - sawtooth, six notes a bar, the driving part
     voice 2   the ostinato, plus the kick, which takes the two steps where
               the ostinato rests anyway
     voice 3   the upper line, slow attack with vibrato, plus the snare on the
@@ -35,16 +35,17 @@ FLATS = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
 
 def idx(name):
-    """'D3' -> sequence byte.  Index 2 = C1, so C1..B5 fit in 2..61."""
+    """'D3' -> sequence byte.  Index 8 = C1, so C1..F5 fit in 8..61 and no
+    pitched note can ever collide with a drum code (those are all < 8)."""
     for n in range(len(name)):
         if name[n].isdigit():
             pitch, octave = name[:n], int(name[n:])
             break
-    return 2 + (octave - 1) * 12 + NOTES.index(FLATS.get(pitch, pitch))
+    return 8 + (octave - 1) * 12 + NOTES.index(FLATS.get(pitch, pitch))
 
 
 def sidfreq(i):
-    hz = 32.703195 * 2 ** ((i - 2) / 12.0)
+    hz = 32.703195 * 2 ** ((i - 8) / 12.0)
     return min(0xFFFF, int(round(hz * 16777216.0 / PAL)))
 
 
@@ -56,6 +57,12 @@ CHORDS = SECTION_A + SECTION_B
 
 ROOT = {'Dm': 'D2', 'C': 'C2', 'Bb': 'Bb1', 'A': 'A1', 'Gm': 'G1'}
 FIFTH = {'Dm': 'A2', 'C': 'G2', 'Bb': 'F2', 'A': 'E2', 'Gm': 'D2'}
+
+# The bass riff, laid out 3+3+2 so it pushes against the kick instead of
+# sitting on it.  Every note is at or below the root - the riff never climbs
+# out of the bass register, which is the whole point of it.
+BASS_STEPS = (0, 3, 6, 8, 11, 14)
+BASS_OFFSET = (0, 0, -5, 0, -2, -5)     # semitones from the root
 
 # six off-beat notes a bar, outlining the chord
 OSTINATO = {
@@ -81,11 +88,9 @@ def sequences():
     s1, s2, s3 = [], [], []
     for bar, ch in enumerate(CHORDS):
         for st in range(16):
-            # --- voice 1: bass, one long note, a fifth halfway through ---
-            if st == 0:
-                s1.append(idx(ROOT[ch]))
-            elif st == 8:
-                s1.append(idx(FIFTH[ch]))
+            # --- voice 1: the bass riff ---
+            if st in BASS_STEPS:
+                s1.append(idx(ROOT[ch]) + BASS_OFFSET[BASS_STEPS.index(st)])
             else:
                 s1.append(HOLD)
 
@@ -93,7 +98,8 @@ def sequences():
             if st in (0, 8):
                 s2.append(KICK)
             elif st in OSTINATO_STEPS:
-                s2.append(idx(OSTINATO[ch][OSTINATO_STEPS.index(st)]))
+                n = idx(OSTINATO[ch][OSTINATO_STEPS.index(st)])
+                s2.append(n - 12 if bar < 8 else n)   # heavier first half
             else:
                 s2.append(HOLD)
 
@@ -113,7 +119,7 @@ def sequences():
 def emit():
     lo, hi = [], []
     for i in range(62):
-        f = sidfreq(i) if i >= 2 else 0
+        f = sidfreq(i) if i >= 8 else 0
         lo.append(f & 0xFF)
         hi.append(f >> 8)
     s1, s2, s3 = sequences()
@@ -125,7 +131,7 @@ def emit():
                        ",".join("$%02x" % b for b in data[i:i+per]))
         return "\n".join(out)
 
-    txt = ["; note frequencies, PAL.  index 2 = C1, 14 = C2, 26 = C3 ...",
+    txt = ["; note frequencies, PAL.  index 8 = C1, 20 = C2, 32 = C3 ...",
            rows("freqlo", lo), rows("freqhi", hi), "",
            "; $00 = hold, $01 = off, $03 = snare, $04 = kick,",
            "; $08 and above = note index",
@@ -141,6 +147,6 @@ if __name__ == "__main__":
     print("%d steps at %d frames = %.1f s per loop, %.0f BPM"
           % (SEQLEN, STEP_FRAMES, SEQLEN * STEP_FRAMES / 50.0,
              60.0 / (STEP_FRAMES / 50.0 * 4)))
-    print("bass notes %d   ostinato %d   kicks %d   upper line %d   snares %d"
+    print("bass riff %d   ostinato %d   kicks %d   upper line %d   snares %d"
           % (sum(1 for n in s1 if n >= 8), sum(1 for n in s2 if n >= 8),
              s2.count(KICK), sum(1 for n in s3 if n >= 8), s3.count(SNARE)))
