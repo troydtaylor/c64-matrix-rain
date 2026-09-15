@@ -1,45 +1,44 @@
 """Compose the tune and emit it as ACME data.
 
-Original piece, written for this program.  The brief was "cinematic" rather
-than "chiptune", so it leans on the things that actually carry that feel:
+Original piece, written for this program: big beat.  The idiom is the point -
+fast breakbeat drums, a funk bass with octave pops, short stabs that sound
+sampled, and a breakdown that drops the kit and builds it back.
 
-  * a slow tempo - 94 BPM, one step every 8 frames
-  * a descending lament bass, D - C - Bb - A, the oldest dramatic device
-    there is, with the A taken as a major dominant for the bite of the C#
-  * a sawtooth bass riff carrying the piece, syncopated 3+3+2 across the bar
-  * a half-time kick and snare rather than a busy kit
-  * an ostinato sitting low under a slow upper line
+    voice 1   the bass - square wave, E minor pentatonic, octave pops, with
+              explicit note-offs so it is rhythmic rather than a drone
+    voice 2   the stabs - narrow pulse, quick decay.  Stabs flagged with bit 7
+              are SID chords: the player arpeggiates a minor triad through
+              the note at one step per frame, which is how a single voice
+              on this chip has always faked a chord.  In the breakdown the
+              same voice holds long notes instead.
+    voice 3   the kit - kick (triangle pitch-swept), snare and hat (noise),
+              one hit per step, laid out as a breakbeat
 
-Voice budget, and why the parts sit where they do:
+Structure, 16 bars at 125 BPM, looping every 30.7 s:
 
-    voice 1   the bass riff - sawtooth, six notes a bar, the driving part
-    voice 2   section A: a triangle SUB layer playing the same riff under
-              the sawtooth - a near-pure fundamental, the way a sine is
-              layered under a synth bass in a studio.  Section B: the
-              ostinato.  Both sections: the kick, on the two steps where
-              the riff and ostinato both rest.
-    voice 3   the upper line, slow attack with vibrato, plus the snare on the
-              backbeat; the line re-swells after every snare, which is the
-              pulsing-strings effect and is deliberate
-
-That is three voices doing the work of five parts, which is the whole craft
-of SID composition.
+    bars  1-4   drums and bass, the groove on its own
+    bars  5-8   stabs come in
+    bars  9-12  breakdown: kit drops to hats, then nothing, stabs hold long
+                notes that climb, and a snare roll pulls it back
+    bars 13-16  everything, with a fill at the end
 """
 PAL = 985248.4
-STEP_FRAMES = 8                 # 8 frames a step -> 94 BPM in 16ths
+STEP_FRAMES = 6                 # 6 frames a step -> 125 BPM in 16ths
 BARS = 16
 SEQLEN = BARS * 16              # 256 steps
+NTABLE = 72                     # note table entries (room for the arp above)
 
 HOLD, OFF = 0, 1
 HAT, SNARE, KICK = 2, 3, 4      # drum codes; every pitched note is >= 8
+ARP = 0x80                      # voice 2: bit 7 = arpeggiate a minor triad
 
 NOTES = "C C# D D# E F F# G G# A A# B".split()
 FLATS = {"Db": "C#", "Eb": "D#", "Gb": "F#", "Ab": "G#", "Bb": "A#"}
 
 
 def idx(name):
-    """'D3' -> sequence byte.  Index 8 = C1, so C1..F5 fit in 8..61 and no
-    pitched note can ever collide with a drum code (those are all < 8)."""
+    """'E2' -> sequence byte.  Index 8 = C1, so no pitched note can ever
+    collide with a drum code (those are all < 8)."""
     for n in range(len(name)):
         if name[n].isdigit():
             pitch, octave = name[:n], int(name[n:])
@@ -52,90 +51,67 @@ def sidfreq(i):
     return min(0xFFFF, int(round(hz * 16777216.0 / PAL)))
 
 
-# --- the arrangement -------------------------------------------------------
-# A: the lament, twice.  B: the same descent started a fourth higher.
-SECTION_A = ['Dm', 'C', 'Bb', 'A', 'Dm', 'C', 'Bb', 'A']
-SECTION_B = ['Gm', 'Dm', 'Bb', 'A', 'Gm', 'Dm', 'Bb', 'A']
-CHORDS = SECTION_A + SECTION_B
-
-ROOT = {'Dm': 'D2', 'C': 'C2', 'Bb': 'Bb1', 'A': 'A1', 'Gm': 'G1'}
-FIFTH = {'Dm': 'A2', 'C': 'G2', 'Bb': 'F2', 'A': 'E2', 'Gm': 'D2'}
-
-# The bass riff, laid out 3+3+2 so it pushes against the kick instead of
-# sitting on it.  Every note is at or below the root - the riff never climbs
-# out of the bass register, which is the whole point of it.
-BASS_STEPS = (0, 3, 6, 8, 11, 14)
-BASS_OFFSET = (0, 0, -5, 0, -2, -5)     # semitones from the root
-
-# voice 2 note codes carry bit 7 as a waveform flag: set = triangle sub
-SUB = 0x80
-
-# six off-beat notes a bar, outlining the chord
-OSTINATO = {
-    'Dm': ['A3', 'D4', 'F4', 'D4', 'A3', 'D4'],
-    'C':  ['G3', 'C4', 'E4', 'C4', 'G3', 'C4'],
-    'Bb': ['F3', 'Bb3', 'D4', 'Bb3', 'F3', 'Bb3'],
-    'A':  ['E3', 'A3', 'C#4', 'A3', 'E3', 'A3'],   # major dominant
-    'Gm': ['D3', 'G3', 'Bb3', 'G3', 'D3', 'G3'],
-}
-OSTINATO_STEPS = (2, 4, 6, 10, 12, 14)
-
-# the upper line: two long notes a bar, descending through section A and
-# answered higher in section B
-UPPER = [
-    ['A4', 'F4'], ['G4', 'E4'], ['F4', 'D4'], ['E4', 'C#4'],
-    ['D5', 'A4'], ['C5', 'G4'], ['Bb4', 'F4'], ['A4', 'E4'],
-    ['D5', 'Bb4'], ['A4', 'D5'], ['F5', 'D5'], ['E5', 'C#5'],
-    ['D5', 'G4'], ['F4', 'A4'], ['D5', 'F5'], ['E5', 'A4'],
+# --- the parts -------------------------------------------------------------
+# bass: a two-bar riff, E minor pentatonic, with the octave pop on step 4
+BASS = [
+    {0: 'E2', 2: OFF, 3: 'E2', 4: 'E3', 5: OFF, 6: 'G2', 7: OFF, 8: 'E2',
+     9: OFF, 10: 'A2', 11: 'A2', 12: 'G2', 13: OFF, 14: 'E2', 15: OFF},
+    {0: 'E2', 2: OFF, 3: 'E2', 4: 'E3', 5: OFF, 6: 'G2', 7: OFF, 8: 'D2',
+     9: OFF, 10: 'D2', 11: 'E2', 12: 'G2', 13: OFF, 14: 'B1', 15: OFF},
 ]
+
+# stabs: a two-bar phrase.  A tuple marks a chord (minor triad on that root);
+# minor triads on E, A and B all sit inside E natural minor.
+STABS = [
+    {0: ('E4',), 1: OFF, 3: ('E4',), 4: OFF, 6: 'G4', 7: OFF, 8: ('A4',),
+     9: OFF, 10: 'G4', 11: OFF, 12: ('E4',), 13: OFF},
+    {0: ('B4',), 1: OFF, 2: ('B4',), 3: OFF, 6: 'D5', 7: OFF, 8: ('A4',),
+     9: OFF, 10: 'G4', 11: OFF, 12: ('E4',), 14: OFF},
+]
+# breakdown: one long chord a bar, climbing
+BREAKDOWN = [('E4',), ('G4',), ('A4',), ('B4',)]
+
+# the kit: a breakbeat, one hit per step
+BEAT = {0: KICK, 2: HAT, 4: SNARE, 6: HAT, 7: KICK, 8: HAT, 10: KICK,
+        11: HAT, 12: SNARE, 14: HAT, 15: KICK}
+FILL = {**BEAT, 12: SNARE, 13: SNARE, 14: SNARE, 15: SNARE}
+HATS_ONLY = {st: HAT for st in range(0, 16, 2)}
+ROLL = {st: SNARE for st in range(8, 16)}       # eight snares into the drop
+
+
+def code(x):
+    """Map a part entry to a sequence byte."""
+    if x == OFF or x == HOLD:
+        return x
+    if isinstance(x, tuple):
+        return ARP | idx(x[0])
+    return idx(x)
 
 
 def sequences():
     s1, s2, s3 = [], [], []
-    for bar, ch in enumerate(CHORDS):
+    for bar in range(BARS):
+        bass = BASS[bar % 2]
+        if bar < 4:
+            stabs, kit = {}, BEAT
+        elif bar < 8:
+            stabs, kit = STABS[bar % 2], (FILL if bar == 7 else BEAT)
+        elif bar < 12:
+            stabs = {0: BREAKDOWN[bar - 8]}
+            kit = {8: HATS_ONLY, 9: HATS_ONLY, 10: {}, 11: ROLL}[bar]
+        else:
+            stabs, kit = STABS[bar % 2], (FILL if bar == 15 else BEAT)
         for st in range(16):
-            # --- voice 1: the bass riff ---
-            if st in BASS_STEPS:
-                s1.append(idx(ROOT[ch]) + BASS_OFFSET[BASS_STEPS.index(st)])
-            else:
-                s1.append(HOLD)
-
-            # --- voice 2: kick on the beat; under it, the sub in A and the
-            #     ostinato in B ---
-            if st in (0, 8):
-                s2.append(KICK)
-            elif bar < 8:
-                # the sub doubles the riff, held at full level, so the
-                # fundamental is continuous under the sawtooth
-                if st in BASS_STEPS:
-                    s2.append(SUB | (idx(ROOT[ch])
-                                     + BASS_OFFSET[BASS_STEPS.index(st)]))
-                else:
-                    s2.append(HOLD)
-            elif st in OSTINATO_STEPS:
-                s2.append(idx(OSTINATO[ch][OSTINATO_STEPS.index(st)]))
-            else:
-                s2.append(HOLD)
-
-            # --- voice 3: upper line, snare on the backbeat.  The line
-            #     sits out the first four bars: bass and drums alone ---
-            if st in (4, 12):
-                s3.append(SNARE)
-            elif bar < 4:
-                s3.append(HOLD)
-            elif st == 0:
-                s3.append(idx(UPPER[bar][0]))
-            elif st == 8:
-                s3.append(idx(UPPER[bar][1]))
-            else:
-                s3.append(HOLD)
+            s1.append(code(bass.get(st, HOLD)))
+            s2.append(code(stabs.get(st, HOLD)))
+            s3.append(kit.get(st, HOLD))
     assert len(s1) == len(s2) == len(s3) == SEQLEN
     return s1, s2, s3
 
 
 def emit():
     lo, hi = [], []
-    for i in range(62):
+    for i in range(NTABLE):
         f = sidfreq(i) if i >= 8 else 0
         lo.append(f & 0xFF)
         hi.append(f >> 8)
@@ -150,11 +126,11 @@ def emit():
 
     txt = ["; note frequencies, PAL.  index 8 = C1, 20 = C2, 32 = C3 ...",
            rows("freqlo", lo), rows("freqhi", hi), "",
-           "; $00 = hold, $01 = off, $03 = snare, $04 = kick,",
-           "; $08 and above = note index",
+           "; $00 = hold, $01 = off, $02 = hat, $03 = snare, $04 = kick,",
+           "; $08 and above = note index; on voice 2 bit 7 = chord arpeggio",
            rows("seq1", s1, "; bass"),
-           rows("seq2", s2, "; ostinato and kick"),
-           rows("seq3", s3, "; upper line and snare")]
+           rows("seq2", s2, "; stabs"),
+           rows("seq3", s3, "; kit")]
     return "\n".join(txt) + "\n"
 
 
@@ -164,7 +140,7 @@ if __name__ == "__main__":
     print("%d steps at %d frames = %.1f s per loop, %.0f BPM"
           % (SEQLEN, STEP_FRAMES, SEQLEN * STEP_FRAMES / 50.0,
              60.0 / (STEP_FRAMES / 50.0 * 4)))
-    print("bass riff %d   sub %d   ostinato %d   kicks %d   upper line %d   snares %d"
-          % (sum(1 for n in s1 if n >= 8), sum(1 for n in s2 if n & SUB),
-             sum(1 for n in s2 if 8 <= n < SUB), s2.count(KICK),
-             sum(1 for n in s3 if n >= 8), s3.count(SNARE)))
+    print("bass %d   stabs %d (of which chords %d)   kick %d  snare %d  hat %d"
+          % (sum(1 for n in s1 if n >= 8), sum(1 for n in s2 if n >= 8),
+             sum(1 for n in s2 if n & ARP), s3.count(KICK), s3.count(SNARE),
+             s3.count(HAT)))
