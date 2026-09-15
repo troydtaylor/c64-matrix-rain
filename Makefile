@@ -15,7 +15,7 @@ FLAGS_matrix-amber  := -DPALETTE=1
 FLAGS_matrix-ice    := -DPALETTE=2
 FLAGS_matrix-rom    := -DFONT=0
 
-.PHONY: all disk verify checktune font music sid audio clean
+.PHONY: all disk verify checktune font music sid audio video clean
 all: disk
 disk: $(DIST)/matrix.d64
 
@@ -65,11 +65,23 @@ sid: $(DIST)/tune.sid
 $(DIST)/tune.sid: $(BUILD)/tune.bin tools/mksid.py | $(DIST)
 	$(PYTHON) tools/mksid.py $(BUILD)/tune.bin $@
 
-audio: $(DIST)/tune.sid
-	sidplayfp -w$(BUILD)/tune.wav -t68 $(DIST)/tune.sid
+$(BUILD)/tune.wav: $(DIST)/tune.sid
+	sidplayfp -w$@ -t68 $(DIST)/tune.sid
+
+audio: $(BUILD)/tune.wav
 	ffmpeg -y -loglevel error -i $(BUILD)/tune.wav -ss 2.0 -t 62 \
 	    -af "afade=t=out:st=60:d=2" -codec:a libmp3lame -b:a 160k \
 	    $(DIST)/matrix-tune.mp3
+
+# The screen saver running, with its music: the program in the simulator,
+# frame by frame, with the reSID render of the tune.  Plus a short silent
+# GIF for the README, which cannot embed video.
+video: $(BUILD)/matrix.prg $(BUILD)/kstub.bin $(BUILD)/tune.wav
+	$(PYTHON) tools/mkvideo.py $(BUILD)/matrix.prg $(BUILD)/tune.wav \
+	    $(DIST)/matrix.mp4 62
+	ffmpeg -y -loglevel error -i $(DIST)/matrix.mp4 -t 8 -vf \
+	    "fps=25,scale=576:-1:flags=neighbor,split[a][b];[a]palettegen=max_colors=16[p];[b][p]paletteuse=dither=none" \
+	    docs/preview.gif
 
 clean:
 	rm -rf $(BUILD)

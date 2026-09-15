@@ -2,3 +2,4 @@ build/
 *.sym
 *.wav
 __pycache__/
+dist/matrix.mp4

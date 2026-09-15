@@ -1,31 +1,36 @@
 ; ===========================================================================
 ;  T H E   T U N E
 ; ---------------------------------------------------------------------------
-;  An original piece written for this program: big beat.  Fast breakbeat
-;  drums, a funk bass with octave pops, short stabs that sound sampled, and
-;  a breakdown that drops the kit and builds it back.  125 BPM, 16 bars,
-;  looping every 30.7 seconds.
+;  An original piece written for this program.  Cinematic rather than
+;  chiptune, which comes down to four things: a slow tempo (94 BPM), a
+;  descending lament bass (D - C - Bb - A, with the A taken as a major
+;  dominant for the bite of the C#), sustained slow-attack timbres instead of
+;  plucky ones, and a half-time kick and snare instead of a busy kit.
 ;
-;    voice 1   the bass: square wave, E minor pentatonic, with explicit
-;              note-offs in the data so it is rhythmic rather than a drone
-;    voice 2   the stabs: narrow pulse, quick decay.  A stab flagged with
-;              bit 7 is a SID chord - the player arpeggiates a minor triad
-;              through it at one note per frame, which is how a single voice
-;              on this chip has always faked a chord.  The breakdown holds
-;              long notes on the same voice.
-;    voice 3   the kit: kick (triangle, pitch-swept 240 Hz down to 48 Hz in
-;              four frames), snare and hat (noise), one hit per step
+;  Three voices carry five parts:
+;
+;    voice 1   the bass riff, sawtooth, six notes a bar, 3+3+2 across it
+;    voice 2   the off-beat ostinato, plus the kick, which takes the two
+;              steps of each bar where the ostinato rests anyway
+;    voice 3   the upper line, slow attack with vibrato, plus the snare on
+;              the backbeat.  The line re-swells after every snare, and that
+;              pulsing-strings effect is the point, not a compromise.
+;
+;  The kick is a real drum: a triangle wave swept from 481 Hz down to 60 Hz
+;  over six frames.  It can be, because the rain no longer needs a SID voice
+;  for its random numbers - see mkrnd in matrix.asm.
 ;
 ;  The sequence is exactly 256 steps, so the position counter wraps on its
-;  own and the loop needs no compare.  One step every 6 frames, driven from
+;  own and the loop needs no compare.  One step every 8 frames, driven from
 ;  the same raster sync as the rain, so it cannot drift against the display.
 ; ===========================================================================
 
-MTEMPO  = 6                     ; frames per step (6 = 125 BPM in 16ths)
+MTEMPO  = 8                     ; frames per step (8 = 94 BPM in 16ths)
 
-W_BASS  = $40                   ; pulse, 50% - a square: fat, hollow
-W_STAB  = $40                   ; pulse, narrow and sweeping: nasal, brassy
-W_NOISE = $80                   ; noise, for the snare and the hat
+W_BASS  = $20                   ; sawtooth - fat, and it cuts
+W_OST   = $40                   ; pulse
+W_UPPER = $20                   ; sawtooth
+W_NOISE = $80                   ; noise, for the snare
 W_KICK  = $10                   ; triangle, swept down in pitch
 
 ; ---------------------------------------------------------------------------
@@ -36,31 +41,22 @@ musinit:
         dex
         bpl .wipe
 
-        lda #$00                ; voice 1 bass: 50% pulse width
-        sta $d402
-        lda #$08
-        sta $d403
-        lda #$06                ; instant attack, 204ms decay,
-        sta $d405               ; sustain 8, instant release
-        lda #$80
+        lda #$00                ; voice 1: instant attack, and sustain at full
+        sta $d405               ; level, so each riff note holds its weight
+        lda #$f9                ; right up to the next one.  750ms release.
         sta $d406
 
-        lda #$05                ; voice 2 stabs: instant attack, 168ms decay,
-        sta $d40c               ; sustain 8 (so held notes hold), 48ms release
-        lda #$82
-        sta $d40d
-
-        lda #$00                ; stab pulse width starts narrow and sweeps
+        lda #$00                ; the ostinato's pulse width sweeps
         sta pwlo
-        lda #$02
+        lda #$06
         sta pwhi
         lda #$00
         sta pwdir
 
         sta mpos                ; A still zero
         sta dcnt
-        sta arpon
-        sta arpph
+        sta leadon
+        sta vibph
         lda #$01
         sta mtick               ; first step lands on the first frame
 
@@ -73,7 +69,7 @@ musinit:
 ; ---------------------------------------------------------------------------
 mplay:
         jsr dtick               ; kick drum pitch sweep
-        jsr arp                 ; chord arpeggio on the stabs
+        jsr vibrato             ; upper line wobble
         dec mtick
         beq mstep
         jmp mpw                 ; between steps only the sweeps move
@@ -102,111 +98,131 @@ mstep:
         sta $d404
 .s1
 
-        ; ---- voice 2: stabs, plain or arpeggiated -------------------------
+        ; ---- voice 2: ostinato, and the kick ------------------------------
         lda seq2,y
         bne .v2any
         jmp .s2
 .v2any  cmp #$08
         bcs .v2note
-        lda #W_STAB             ; note off
+        cmp #$01
+        bne .v2kick
+        lda #W_OST              ; note off
         sta $d40b
-        lda #$00
-        sta arpon
         jmp .s2
-.v2note sta v2tmp
-        and #$7f                ; bit 7 is the chord flag, not pitch
-        tax
-        stx arpbase
+
+.v2kick lda #$00                ; triangle, swept down by dtick each frame
+        sta $d407
+        lda kickf+5
+        sta $d408
+        lda #$08                ; 300 ms decay
+        sta $d40c
+        lda #$00
+        sta $d40d
+        lda #W_KICK
+        sta $d40b
+        lda #W_KICK|$01
+        sta $d40b
+        lda #$06
+        sta dcnt                ; six frames of pitch sweep
+        jmp .s2
+
+.v2note tax                     ; an ostinato note: pulse, short, with a
+        lda #$00                ; little sustain so it drives rather than
+        sta dcnt                ; ticks.  Also cancels any kick sweep.
         lda freqlo,x
         sta $d407
         lda freqhi,x
         sta $d408
-        lda #W_STAB
+        lda #$07
+        sta $d40c
+        lda #$40
+        sta $d40d
+        lda #W_OST
         sta $d40b
-        lda #W_STAB|$01
+        lda #W_OST|$01
         sta $d40b
-        lda #$00
-        sta arpph
-        lda v2tmp
-        and #$80
-        sta arpon               ; $80 = arpeggiate, $00 = plain
 .s2
 
-        ; ---- voice 3: the kit ---------------------------------------------
+        ; ---- voice 3: the upper line, and the snare -----------------------
         lda seq3,y
         bne .v3any
         jmp .s3
-.v3any  cmp #$01
-        bne .v3drum
-        lda #$00                ; silence
-        sta $d412
-        jmp .s3
-.v3drum cmp #$04
-        beq .v3kick
-        cmp #$02
+.v3any  cmp #$08
+        bcs .v3note
+        cmp #$01
         bne .v3snr
-        lda #$ff                ; hat: noise at the top of the range,
-        sta $d40e               ; 48 ms decay - a closed tick
-        sta $d40f
-        lda #$02
-        sta $d413
-        jmp .v3hit
-.v3snr  lda #$00                ; snare: mid-range noise, 204 ms decay
+        lda #$00                ; silence the voice
+        sta $d412
+        sta leadon
+        jmp .s3
+
+.v3snr  lda #$00
+        sta leadon
         sta $d40e
-        lda #$60
-        sta $d40f
-        lda #$06
+        lda #$40
+        sta $d40f               ; mid-range noise: a body, not a tick
+        lda #$07                ; 240 ms decay
         sta $d413
-.v3hit  lda #$00
+        lda #$00
         sta $d414
-        sta dcnt                ; cancel any kick sweep
         lda #W_NOISE
         sta $d412
         lda #W_NOISE|$01
         sta $d412
         jmp .s3
-.v3kick lda #$00                ; kick: triangle, swept down by dtick
+
+.v3note tax                     ; sawtooth, slow attack, vibrato
+        lda freqlo,x
         sta $d40e
-        lda kickf+3
+        sta leadlo
+        lda freqhi,x
         sta $d40f
-        lda #$06                ; 204 ms decay
+        sta leadhi
+        lda leadlo              ; park the vibrato centre 40 below the note,
+        sec                     ; so the wobble is symmetrical about it
+        sbc #40
+        sta leadlo
+        lda leadhi
+        sbc #$00
+        sta leadhi
+        lda #$89                ; 100 ms attack - it swells in
         sta $d413
-        lda #$00
+        lda #$ca                ; sustain 12, 1.5 s release
         sta $d414
-        lda #W_KICK
+        lda #W_UPPER
         sta $d412
-        lda #W_KICK|$01
+        lda #W_UPPER|$01
         sta $d412
-        lda #$04
-        sta dcnt                ; four frames of pitch sweep
+        lda #$01
+        sta leadon
 .s3
 
         inc mpos                ; 256 steps, so this wraps by itself
 
-; ---- pulse width sweep on the stabs ---------------------------------------
+; ---- pulse width sweep on the ostinato ------------------------------------
 mpw:
         lda pwdir
         bmi .down
         lda pwlo
         clc
-        adc #$20
+        adc #$18
         sta pwlo
         lda pwhi
         adc #$00
         sta pwhi
-        cmp #$05
+        cmp #$0c
         bcc .write
         lda #$ff
         sta pwdir
         bne .write
 .down   lda pwlo
         sec
-        sbc #$20
+        sbc #$18
         sta pwlo
         lda pwhi
         sbc #$00
         sta pwhi
-        cmp #$01
+        cmp #$02
         bcs .write
         lda #$00
         sta pwdir
@@ -217,7 +233,7 @@ mpw:
         rts
 
 ; ---------------------------------------------------------------------------
-;  Kick drum: walk voice 3's frequency down one step per frame.
+;  Kick drum: walk voice 2's frequency down one step per frame.
 ; ---------------------------------------------------------------------------
 dtick:
         lda dcnt
@@ -225,33 +241,29 @@ dtick:
         dec dcnt
         ldx dcnt
         lda #$00
-        sta $d40e
+        sta $d407
         lda kickf,x
-        sta $d40f
+        sta $d408
 .nokick rts
 
 ; ---------------------------------------------------------------------------
-;  SID chord: cycle a minor triad through the stab, one note per frame.
+;  Upper line vibrato: one cycle every eight frames, about 6 Hz.
 ; ---------------------------------------------------------------------------
-arp:
-        lda arpon
-        beq .noarp
-        inc arpph
-        lda arpph
-        cmp #$03
-        bcc .arpok
-        lda #$00
-        sta arpph
-.arpok  tax
-        lda arpbase
-        clc
-        adc arpoff,x
+vibrato:
+        lda leadon
+        beq .novib
+        inc vibph
+        lda vibph
+        and #$07
         tax
-        lda freqlo,x
-        sta $d407
-        lda freqhi,x
-        sta $d408
-.noarp  rts
+        lda leadlo
+        clc
+        adc vibtab,x
+        sta $d40e
+        lda leadhi
+        adc #$00
+        sta $d40f
+.novib  rts
 
 ; ---------------------------------------------------------------------------
 musoff:
@@ -263,21 +275,21 @@ musoff:
         rts
 
 ; ---- data -----------------------------------------------------------------
-; kick sweep, read backwards: $0Fxx first (240 Hz), $03xx last (48 Hz)
-kickf:  !byte $03,$05,$08,$0f
-; minor triad, in semitones above the root
-arpoff: !byte 0,3,7
+; kick sweep, read backwards: $20xx first (481 Hz), $04xx last (60 Hz)
+kickf:  !byte $04,$06,$09,$0d,$13,$20
+; vibrato, a triangle centred on 40
+vibtab: !byte 40,60,80,60,40,20,0,20
 
 ; ---- state ----------------------------------------------------------------
 mpos:   !byte 0
 mtick:  !byte 1
 pwlo:   !byte 0
-pwhi:   !byte 2
+pwhi:   !byte 6
 pwdir:  !byte 0
 dcnt:   !byte 0                 ; frames left in the kick sweep
-v2tmp:  !byte 0
-arpon:  !byte 0
-arpbase: !byte 0
-arpph:  !byte 0
+leadon: !byte 0
+leadlo: !byte 0
+leadhi: !byte 0
+vibph:  !byte 0
 
 !source "musicdata.inc"

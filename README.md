@@ -3,7 +3,11 @@
 Falling-code screen saver for a stock C64. 2.3 KB, PAL or NTSC, no cartridge,
 no fastloader, no lag — the whole animation costs about 14% of a frame.
 
-![The rain running](docs/preview.png)
+![The rain running](docs/preview.gif)
+
+The GIF is silent. `make video` records 62 seconds of it *with* the music —
+the program running in the simulator, one frame per pass through the main
+loop, with the SID output rendered through reSID — as `dist/matrix.mp4`.
 
 Press any key to exit. It puts the screen, the colours, the character set and
 the SID back the way BASIC likes them on the way out.
@@ -87,21 +91,31 @@ site gets a separate stream through the table for nothing. The one-time cost
 is about 27,000 cycles at boot; the per-frame cost is slightly *lower* than
 the SID read was, because the table is pre-folded into glyph range.
 
-That hands voice 3 to the music. The tune is big beat — 16 bars at 125 BPM,
-looping every 30.7 seconds: fast breakbeat drums, a funk bass with octave
-pops, short stabs that sound sampled, and a breakdown that drops the kit and
-builds it back.
+That hands voice 3 to the music. The tune is 16 bars in D minor at 94 BPM,
+looping every 41 seconds. It leans cinematic rather than chiptune — a slow
+tempo, a descending lament bass (D–C–B♭–A, the A taken as a major dominant for
+the bite of the C♯), a half-time kick and snare instead of a busy kit, and a
+sawtooth bass riff carrying the whole thing.
 
-| voice | part |
-|-------|------|
-| 1 | the bass — square wave, E minor pentatonic, with explicit note-offs in the data so it's rhythmic rather than a drone |
-| 2 | the stabs — narrow sweeping pulse, quick decay. A stab flagged with bit 7 is a **SID chord**: the player arpeggiates a minor triad through it at one note per frame, which is how a single voice on this chip has always faked a chord. The breakdown holds long notes on the same voice |
-| 3 | the kit — kick (triangle, pitch-swept 240 Hz down to 48 Hz over four frames), snare and hat (noise), one hit per step, laid out as a breakbeat |
+Every note of that riff sits at or below the root — root, fifth below, flat
+seventh below — so it never climbs out of the bass register, and it sustains
+at full level between hits rather than decaying, which keeps the low end
+continuous while still being an articulated line rather than a drone. Note
+indices are based so that index 8 is C1: the bottom octave is usable and no
+pitched note can collide with a drum code.
 
-Structure: bars 1–4 are drums and bass alone; the stabs arrive at bar 5;
-bars 9–12 are the breakdown — the kit thins to hats, then to nothing, while
-the stabs hold long chords that climb, and an eight-snare roll pulls it
-back; bars 13–16 are everything, with a fill at the end.
+Three voices carry five parts:
+
+| voice | part | and also |
+|-------|------|----------|
+| 1 | the bass riff — sawtooth, six notes a bar, 3+3+2 across it | never interrupted |
+| 2 | the off-beat ostinato | the kick, which takes the two steps a bar where the ostinato rests anyway |
+| 3 | the upper line, slow attack with vibrato | the snare on the backbeat |
+
+The upper line re-swells after every snare, and that pulsing-strings effect is
+the point rather than a compromise. The kick is a real drum — a triangle wave
+swept from 481 Hz down to 60 Hz over six frames — which is only possible
+because the voice is free to change pitch again.
 
 ## Building
 
@@ -113,6 +127,7 @@ make verify     # run each build through a 6502 simulator
 make checktune  # read back every note the player writes to the SID
 make sid        # the tune as a standalone .sid
 make audio      # render that to mp3 (needs sidplayfp and ffmpeg)
+make video      # dist/matrix.mp4 and docs/preview.gif (same tools, plus numpy)
 ```
 
 Build options can be set on the command line:
@@ -148,9 +163,9 @@ The tune is checked the same way. `make checktune` runs the player in the
 simulator, reads back every frequency it writes to the SID, and compares it
 against what `tools/music.py` composed — so the generator, the assembled data
 and the player are checked against each other end to end. That is far more
-reliable than analysing the rendered audio, where one voice's harmonics sit
-in another's band and will happily fool a spectrum peak into reporting the
-wrong note.
+reliable than analysing the rendered audio: the ostinato's harmonics sit in
+the same band as the upper line and will happily fool a spectrum peak into
+reporting the wrong note.
 
 `tools/measure.py` counts how many rows the rain actually advances per frame,
 which is how the speed was tuned.
@@ -169,6 +184,7 @@ tools/mkd64.py      writes a .d64 by hand (BAM, directory, linked sectors)
 tools/sim.py        6502 simulator harness and the invariant checks
 tools/fakerom.py    stand-in character ROM for the simulator
 tools/sidtrace.py   reads back every note the player writes to the SID
+tools/mkvideo.py    records the program running, with sound, as an MP4
 tools/measure.py    measures the actual fall speed
 ```
 
