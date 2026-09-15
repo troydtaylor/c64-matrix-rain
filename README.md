@@ -5,6 +5,8 @@ no fastloader, no lag — the whole animation costs about 14% of a frame.
 
 ![The rain running](docs/preview.gif)
 
+https://github.com/user-attachments/assets/fdb339f4-4e35-4651-9aad-ff51cd5a480c
+
 The GIF is silent. `make video` records 62 seconds of it *with* the music —
 the program running in the simulator, one frame per pass through the main
 loop, with the SID output rendered through reSID — as `dist/matrix.mp4`.
